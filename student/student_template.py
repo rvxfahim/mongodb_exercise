@@ -17,7 +17,7 @@ MongoDB Document Format:
     'CPU': string (3-100 characters),
     'RAM': integer (bytes),
     'Temperature': integer (0-150),
-    'ID': integer (your 4-digit student ID),
+    'ID': integer (your 7-digit student ID),
     'timestamp': datetime object
 }
 """
@@ -29,8 +29,8 @@ import time
 import platform
 import psutil
 
-# TODO: Replace with your student ID (4-digit number)
-STUDENT_ID = 1234
+# TODO: Replace with your student ID (7-digit number)
+STUDENT_ID = 1234567
 
 # TODO: Replace with instructor-provided connection info
 MONGODB_HOST = "localhost"  # or instructor's IP address

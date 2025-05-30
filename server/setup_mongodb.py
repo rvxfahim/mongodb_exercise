@@ -49,9 +49,9 @@ def setup_database(host='localhost', port=27017):
                 },
                 'ID': {
                     'bsonType': 'int',
-                    'minimum': 1000,
-                    'maximum': 9999,
-                    'description': 'Student ID must be 4-digit integer'
+                    'minimum': 1000000,
+                    'maximum': 9999999,
+                    'description': 'Student ID must be 7-digit integer'
                 },
                 'timestamp': {
                     'bsonType': 'date',
@@ -75,7 +75,7 @@ def setup_database(host='localhost', port=27017):
             'CPU': 'Intel Core i7-9750H',
             'RAM': 17179869184,  # 16GB in bytes
             'Temperature': 65,
-            'ID': 1234,
+            'ID': 1234567,
             'timestamp': datetime.utcnow()
         }
         
@@ -97,7 +97,7 @@ def setup_database(host='localhost', port=27017):
         print("    'CPU': 'string (3-100 chars)',")
         print("    'RAM': integer (0 to 1TB in bytes),")
         print("    'Temperature': integer (0-150),")
-        print("    'ID': integer (1000-9999),")
+        print("    'ID': integer (1000000-9999999),")
         print("    'timestamp': datetime object")
         print("}")
         print("="*60)

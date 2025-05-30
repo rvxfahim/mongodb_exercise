@@ -139,7 +139,7 @@ def get_validation_errors():
             'Document failed validation: CPU must be string',
             'Document failed validation: RAM exceeds maximum value',
             'Document failed validation: Missing required field timestamp',
-            'Document failed validation: ID must be 4-digit number'
+            'Document failed validation: ID must be 7-digit number'
         ]
     })
 
