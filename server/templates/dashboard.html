@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Monitoring Dashboard</title>
+    <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .dashboard {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+            flex-basis: 45%;
+            min-width: 400px;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .stat-box {
+            padding: 15px;
+            border-radius: 8px;
+            background: #f0f0f0;
+            min-width: 120px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .stat-label {
+            color: #666;
+        }
+        #student-selector {
+            padding: 10px;
+            margin: 10px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .no-data {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+        }
+    </style>
+</head>
+<body>
+    <h1>System Monitoring Dashboard</h1>
+    
+    <div class="stats">
+        <div class="stat-box">
+            <div class="stat-label">Total Records</div>
+            <div class="stat-value" id="total-docs">--</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Active Students</div>
+            <div class="stat-value" id="active-students">--</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Last Minute</div>
+            <div class="stat-value" id="last-minute">--</div>
+        </div>
+    </div>
+    
+    <div style="text-align: center; margin: 20px 0;">
+        <label for="student-selector">Select Student: </label>
+        <select id="student-selector">
+            <option value="">Loading students...</option>
+        </select>
+    </div>
+    
+    <div class="dashboard">
+        <div class="card">
+            <h2>Temperature History</h2>
+            <div class="chart-container">
+                <canvas id="temp-chart"></canvas>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Memory Usage</h2>
+            <div class="chart-container">
+                <canvas id="ram-chart"></canvas>
+            </div>
+        </div>
+        
+        <div class="card" style="flex-basis: 100%;">
+            <h2>System Information</h2>
+            <div id="system-info">
+                <p>No data available. Waiting for student connections...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentStudentId = null;
+        
+        // Charts
+        const tempCtx = document.getElementById('temp-chart').getContext('2d');
+        const ramCtx = document.getElementById('ram-chart').getContext('2d');
+        
+        const tempChart = new Chart(tempCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Temperature (°C)',
+                    data: [],
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        title: {
+                            display: true,
+                            text: 'Temperature (°C)'
+                        }
+                    }
+                }
+            }
+        });
+        
+        const ramChart = new Chart(ramCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'RAM (GB)',
+                    data: [],
+                    borderColor: 'rgb(54, 162, 235)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'RAM (GB)'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Update stats periodically
+        function updateStats() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('total-docs').textContent = data.total_documents;
+                    document.getElementById('active-students').textContent = data.active_students;
+                    document.getElementById('last-minute').textContent = data.last_minute;
+                })
+                .catch(err => console.error('Error fetching stats:', err));
+        }
+        
+        // Update student list
+        function updateStudentList() {
+            fetch('/api/students')
+                .then(response => response.json())
+                .then(students => {
+                    const selector = document.getElementById('student-selector');
+                    selector.innerHTML = '';
+                    
+                    if (students.length === 0) {
+                        const option = document.createElement('option');
+                        option.text = 'No active students';
+                        option.value = '';
+                        selector.appendChild(option);
+                    } else {
+                        students.forEach(id => {
+                            const option = document.createElement('option');
+                            option.text = `Student ${id}`;
+                            option.value = id;
+                            selector.appendChild(option);
+                        });
+                        
+                        // If we don't have a selected student yet, select the first one
+                        if (!currentStudentId && students.length > 0) {
+                            currentStudentId = students[0];
+                            selector.value = currentStudentId;
+                            loadStudentData(currentStudentId);
+                        }
+                    }
+                })
+                .catch(err => console.error('Error fetching students:', err));
+        }
+        
+        // Load student data
+        function loadStudentData(studentId) {
+            fetch(`/api/data/${studentId}`)
+                .then(response => response.json())
+                .then(data => {
+                    // Reset charts since we're switching to a new student
+                    tempChart.data.labels = [];
+                    tempChart.data.datasets[0].data = [];
+                    ramChart.data.labels = [];
+                    ramChart.data.datasets[0].data = [];
+                    
+                    // System info
+                    if (data.length > 0) {
+                        const lastEntry = data[data.length - 1];
+                        document.getElementById('system-info').innerHTML = `
+                            <p><strong>CPU Model:</strong> ${lastEntry.CPU}</p>
+                            <p><strong>RAM:</strong> ${(lastEntry.RAM / (1024**3)).toFixed(2)} GB</p>
+                            <p><strong>Student ID:</strong> ${lastEntry.ID}</p>
+                            <p><strong>Last Update:</strong> ${new Date(lastEntry.timestamp).toLocaleString()}</p>
+                        `;
+                    }
+                    
+                    // Load all historical data points
+                    data.forEach(entry => {
+                        const timestamp = new Date(entry.timestamp);
+                        if (!isNaN(timestamp)) {
+                            const time = timestamp.toLocaleTimeString();
+                            tempChart.data.labels.push(time);
+                            tempChart.data.datasets[0].data.push(entry.Temperature);
+                            
+                            ramChart.data.labels.push(time);
+                            ramChart.data.datasets[0].data.push((entry.RAM / (1024**3)).toFixed(2));
+                        }
+                    });
+                    
+                    tempChart.update();
+                    ramChart.update();
+                })
+                .catch(err => console.error('Error fetching student data:', err));
+        }
+        
+        // Socket connection for real-time updates
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+        
+        socket.on('new_data', (data) => {
+            // Only update if this is the selected student
+            if (currentStudentId && data.ID == currentStudentId) {
+                const time = new Date(data.timestamp).toLocaleTimeString();
+                
+                // Add new data points and maintain sliding window of 50 points
+                tempChart.data.labels.push(time);
+                tempChart.data.datasets[0].data.push(data.Temperature);
+                if (tempChart.data.labels.length > 50) {
+                    tempChart.data.labels.shift();
+                    tempChart.data.datasets[0].data.shift();
+                }
+                tempChart.update();
+                
+                ramChart.data.labels.push(time);
+                ramChart.data.datasets[0].data.push((data.RAM / (1024**3)).toFixed(2));
+                if (ramChart.data.labels.length > 50) {
+                    ramChart.data.labels.shift();
+                    ramChart.data.datasets[0].data.shift();
+                }
+                ramChart.update();
+                
+                // Update system info
+                document.getElementById('system-info').innerHTML = `
+                    <p><strong>CPU Model:</strong> ${data.CPU}</p>
+                    <p><strong>RAM:</strong> ${(data.RAM / (1024**3)).toFixed(2)} GB</p>
+                    <p><strong>Student ID:</strong> ${data.ID}</p>
+                    <p><strong>Last Update:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+                `;
+            }
+            
+            // Always update stats
+            updateStats();
+        });
+        
+        // Setup event listeners
+        document.getElementById('student-selector').addEventListener('change', (e) => {
+            currentStudentId = e.target.value;
+            if (currentStudentId) {
+                loadStudentData(currentStudentId);
+            }
+        });
+        
+        // Initial load
+        updateStats();
+        updateStudentList();
+        
+        // Refresh data periodically
+        setInterval(updateStats, 5000);
+        setInterval(updateStudentList, 10000);
+    </script>
+</body>
+</html> 
