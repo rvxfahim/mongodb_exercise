@@ -1,6 +1,8 @@
 from pymongo import MongoClient
 from pymongo.errors import CollectionInvalid
 import sys
+import os
+import platform
 from datetime import datetime
 import subprocess
 import time
@@ -110,67 +112,180 @@ def setup_database(host='localhost', port=27017):
         sys.exit(1)
 
 def is_mongodb_running():
-    """Checks if the MongoDB service is active using 'systemctl is-active mongod'."""
-    try:
-        # systemctl is-active returns 0 if active, non-zero otherwise.
-        result = subprocess.run(['systemctl', 'is-active', 'mongod'],
-                                capture_output=True, # Suppress output to console
-                                text=True,
-                                check=False) # Don't raise for non-zero status
-        return result.returncode == 0
-    except FileNotFoundError:
-        # systemctl not found
-        print("Warning: 'systemctl' command not found. Cannot check MongoDB status automatically.")
-        print("Please ensure MongoDB is running or install systemctl if you are on a systemd-based Linux.")
-        return False # Indicates we couldn't confirm it's running
-    except Exception as e:
-        print(f"An error occurred while checking MongoDB status: {e}")
-        return False
+    """Checks if the MongoDB service is active on both Windows and Linux systems."""
+    system = platform.system()
+    
+    if system == "Windows":
+        # Windows: Check if MongoDB service is running using Windows SC command
+        try:
+            result = subprocess.run(['sc', 'query', 'MongoDB'],
+                                   capture_output=True,
+                                   text=True,
+                                   check=False)
+            # If SC returns 0 and "RUNNING" is in the output, the service is running
+            return result.returncode == 0 and "RUNNING" in result.stdout
+        except FileNotFoundError:
+            # SC command not found or not accessible
+            print("Warning: Cannot check MongoDB service status using Windows SC command.")
+            # Try connecting to MongoDB directly as a fallback
+            try:
+                # Simple connection test
+                client = MongoClient('localhost', 27017, serverSelectionTimeoutMS=2000)
+                client.admin.command('ping')  # Will raise exception if server is not available
+                return True
+            except Exception:
+                print("Could not connect to MongoDB server.")
+                return False
+        except Exception as e:
+            print(f"An error occurred while checking MongoDB status: {e}")
+            return False
+    else:
+        # Linux: Use systemctl if available
+        try:
+            # systemctl is-active returns 0 if active, non-zero otherwise.
+            result = subprocess.run(['systemctl', 'is-active', 'mongod'],
+                                    capture_output=True,
+                                    text=True,
+                                    check=False)
+            return result.returncode == 0
+        except FileNotFoundError:
+            # systemctl not found, try using ps as fallback
+            try:
+                result = subprocess.run(['ps', '-A'],
+                                       capture_output=True,
+                                       text=True)
+                return 'mongod' in result.stdout
+            except:
+                # If ps also fails, try direct connection
+                try:
+                    client = MongoClient('localhost', 27017, serverSelectionTimeoutMS=2000)
+                    client.admin.command('ping')
+                    return True
+                except Exception:
+                    print("Could not verify if MongoDB is running through any method.")
+                    return False
+        except Exception as e:
+            print(f"An error occurred while checking MongoDB status: {e}")
+            return False
 
 def start_mongodb_service():
-    """Attempts to start the MongoDB service using 'sudo systemctl start mongod'."""
-    print("Attempting to start MongoDB service (mongod)...")
-    print("This may require sudo privileges. If prompted, please enter your password.")
-    try:
-        process = subprocess.run(['sudo', 'systemctl', 'start', 'mongod'],
-                                 capture_output=True, text=True, timeout=30) # 30s timeout
-        
-        if process.returncode == 0:
-            print("MongoDB service start command executed.")
-            return True # Indicates command was issued
-        else:
-            print(f"✗ Failed to start MongoDB service using 'sudo systemctl start mongod'.")
-            print(f"  Return code: {process.returncode}")
-            if process.stdout and process.stdout.strip():
-                print(f"  Stdout:\n{process.stdout.strip()}")
-            if process.stderr and process.stderr.strip():
-                print(f"  Stderr:\n{process.stderr.strip()}")
-            print("  Please ensure 'mongod' service is correctly installed and configured.")
-            print("  You may need to run this script with sudo or start MongoDB manually.")
-            return False
+    """Attempts to start the MongoDB service on both Windows and Linux systems."""
+    system = platform.system()
+    
+    if system == "Windows":
+        print("Attempting to start MongoDB service on Windows...")
+        try:
+            # On Windows, use the NET START command with administrative privileges
+            # The /y flag suppresses confirmation prompts
+            process = subprocess.run(['net', 'start', 'MongoDB'],
+                                     capture_output=True,
+                                     text=True,
+                                     timeout=30)  # 30s timeout
             
-    except FileNotFoundError:
-        print("Warning: 'sudo' or 'systemctl' command not found. Cannot start MongoDB service automatically.")
-        print("Please ensure MongoDB is running manually.")
-        return False
-    except subprocess.TimeoutExpired:
-        print("Timeout occurred while trying to start MongoDB service.")
-        print("This might happen if 'sudo' is waiting for a password.")
-        print("Please ensure MongoDB is running manually or run this script with appropriate privileges.")
-        return False
-    except Exception as e:
-        print(f"An error occurred while trying to start MongoDB: {e}")
-        return False
+            if process.returncode == 0:
+                print("MongoDB service start command executed successfully.")
+                return True
+            elif "already been started" in process.stderr:
+                # Already running is still a success case
+                print("MongoDB service is already running.")
+                return True
+            else:
+                print(f"✗ Failed to start MongoDB service using 'net start MongoDB'.")
+                print(f"  Return code: {process.returncode}")
+                if process.stdout and process.stdout.strip():
+                    print(f"  Stdout:\n{process.stdout.strip()}")
+                if process.stderr and process.stderr.strip():
+                    print(f"  Stderr:\n{process.stderr.strip()}")
+                
+                # Try to provide helpful information
+                print("\nPossible solutions:")
+                print("  1. Ensure MongoDB is installed as a Windows service")
+                print("  2. Run this script as Administrator")
+                print("  3. Try starting MongoDB manually:")
+                print("     - From the Start menu, search for 'Services'")
+                print("     - Find MongoDB service and start it")
+                print("     - Or run 'mongod.exe' directly from the MongoDB bin folder")
+                return False
+                
+        except FileNotFoundError:
+            print("Warning: 'net' command not found. Cannot start MongoDB service automatically.")
+            print("Please ensure MongoDB is running manually.")
+            return False
+        except subprocess.TimeoutExpired:
+            print("Timeout occurred while trying to start MongoDB service.")
+            print("Please ensure MongoDB is running manually or run this script with administrative privileges.")
+            return False
+        except Exception as e:
+            print(f"An error occurred while trying to start MongoDB: {e}")
+            return False
+    else:
+        # Linux
+        print("Attempting to start MongoDB service (mongod)...")
+        print("This may require sudo privileges. If prompted, please enter your password.")
+        try:
+            process = subprocess.run(['sudo', 'systemctl', 'start', 'mongod'],
+                                     capture_output=True, text=True, timeout=30)
+            
+            if process.returncode == 0:
+                print("MongoDB service start command executed.")
+                return True
+            else:
+                print(f"✗ Failed to start MongoDB service using 'sudo systemctl start mongod'.")
+                print(f"  Return code: {process.returncode}")
+                if process.stdout and process.stdout.strip():
+                    print(f"  Stdout:\n{process.stdout.strip()}")
+                if process.stderr and process.stderr.strip():
+                    print(f"  Stderr:\n{process.stderr.strip()}")
+                print("  Please ensure 'mongod' service is correctly installed and configured.")
+                print("  You may need to run this script with sudo or start MongoDB manually.")
+                return False
+                
+        except FileNotFoundError:
+            # Try using the service command if systemctl is not available
+            try:
+                process = subprocess.run(['sudo', 'service', 'mongod', 'start'],
+                                        capture_output=True, text=True, timeout=30)
+                if process.returncode == 0:
+                    print("MongoDB service start command executed using 'service'.")
+                    return True
+                else:
+                    print("Failed to start MongoDB using both 'systemctl' and 'service' commands.")
+                    print("Please start MongoDB manually.")
+                    return False
+            except:
+                print("Warning: Neither 'systemctl' nor 'service' commands are available.")
+                print("Please ensure MongoDB is running manually.")
+                return False
+        except subprocess.TimeoutExpired:
+            print("Timeout occurred while trying to start MongoDB service.")
+            print("This might happen if 'sudo' is waiting for a password.")
+            print("Please ensure MongoDB is running manually or run this script with appropriate privileges.")
+            return False
+        except Exception as e:
+            print(f"An error occurred while trying to start MongoDB: {e}")
+            return False
 
 if __name__ == "__main__":
+    system = platform.system()
+    print(f"Detected operating system: {system}")
+    
     if not is_mongodb_running():
-        print("MongoDB service (mongod) is not detected or not active.")
+        print("MongoDB service is not detected or not active.")
         if start_mongodb_service():
             print("Waiting a few seconds for MongoDB to initialize...")
             time.sleep(5)  # Wait for 5 seconds
             if not is_mongodb_running():
                 print("✗ Failed to start MongoDB service or it's not responsive after the start command.")
-                print("  Please check the service status manually (e.g., 'systemctl status mongod').")
+                
+                if system == "Windows":
+                    print("  Please check if MongoDB is installed as a Windows service.")
+                    print("  You can check the service status in the Services application.")
+                    print("  Alternatively, you can try starting MongoDB manually:")
+                    print("  - Run the MongoDB executable directly from its installation directory")
+                    print("  - Typically: C:\\Program Files\\MongoDB\\Server\\<version>\\bin\\mongod.exe")
+                else:
+                    print("  Please check the service status manually (e.g., 'systemctl status mongod').")
+                
                 print("  Ensure MongoDB is installed correctly and can be started, then re-run the script.")
                 sys.exit(1)
             else:
@@ -180,7 +295,7 @@ if __name__ == "__main__":
             print("Exiting due to failure to start MongoDB.")
             sys.exit(1)
     else:
-        print("✓ MongoDB service (mongod) is already active.")
+        print("✓ MongoDB service is active.")
 
     # Allow custom host if provided
     host = sys.argv[1] if len(sys.argv) > 1 else 'localhost'
